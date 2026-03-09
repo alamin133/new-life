@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <!-- title shown in browser tab -->
+    <title>New Life - File Upload</title>
+    <style>
+        /* basic styling to make page look clean */
+        body {
+            font-family: Arial, sans-serif;  /* font style */
+            max-width: 600px;                /* page width */
+            margin: 50px auto;               /* center page */
+            padding: 20px;                   /* space inside */
+            background-color: #f5f5f5;       /* light gray background */
+        }
+        h1 {
+            color: #333;                     /* dark gray heading */
+        }
+        .box {
+            background: white;               /* white box */
+            padding: 20px;                   /* space inside box */
+            border-radius: 8px;              /* rounded corners */
+            margin-bottom: 20px;             /* space between boxes */
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);  /* subtle shadow */
+        }
+        button {
+            background-color: #007bff;       /* blue button */
+            color: white;                    /* white text */
+            padding: 10px 20px;              /* button size */
+            border: none;                    /* no border */
+            border-radius: 4px;              /* rounded corners */
+            cursor: pointer;                 /* pointer on hover */
+        }
+        button:hover {
+            background-color: #0056b3;       /* darker blue on hover */
+        }
+        #message {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+            display: none;                   /* hidden by default */
+        }
+        .success {
+            background-color: #d4edda;       /* green background */
+            color: #155724;                  /* green text */
+        }
+        .error {
+            background-color: #f8d7da;       /* red background */
+            color: #721c24;                  /* red text */
+        }
+    </style>
+</head>
+<body>
+
+    <h1>New Life - S3 File Manager</h1>
+
+    <!-- UPLOAD BOX -->
+    <div class="box">
+        <h2>Upload File</h2>
+
+        <!-- file input → lets user choose a file -->
+        <input type="file" id="fileInput">
+        <br><br>
+
+        <!-- upload button → calls uploadFile() when clicked -->
+        <button onclick="uploadFile()">Upload to S3</button>
+    </div>
+
+    <!-- DELETE BOX -->
+    <div class="box">
+        <h2>Delete File</h2>
+
+        <!-- text input → user types filename to delete -->
+        <input type="text" id="deleteInput" placeholder="Enter filename to delete">
+        <br><br>
+
+        <!-- delete button → calls deleteFile() when clicked -->
+        <button onclick="deleteFile()">Delete from S3</button>
+    </div>
+
+    <!-- MESSAGE BOX → shows success or error -->
+    <div id="message"></div>
+
+    <script>
+        // UPLOAD FUNCTION — called when upload button is clicked
+        async function uploadFile() {
+            const file = document.getElementById("fileInput").files[0]
+            // get the file user selected
+            // files[0] = first file selected (we only allow one file)
+
+            if (!file) {
+                // if no file selected → show error
+                showMessage("Please select a file first!", "error")
+                return  // stop here
+            }
+
+            const formData = new FormData()
+            // FormData = special object to send files in HTTP request
+            formData.append("file", file)
+            // add file to FormData with key "file"
+            // this matches request.files["file"] in app.py ✅
+
+            const response = await fetch("/upload", {
+                method: "POST",      // POST request to /upload route
+                body: formData       // send the file
+            })
+            // fetch = browser function to send HTTP requests
+            // await = wait for response before continuing
+
+            const data = await response.json()
+            // convert response to JSON
+            // data.message = the message from Flask
+
+            showMessage(data.message, "success")
+            // show success message to user
+        }
+
+        // DELETE FUNCTION — called when delete button is clicked
+        async function deleteFile() {
+            const filename = document.getElementById("deleteInput").value
+            // get filename user typed in input box
+
+            if (!filename) {
+                // if no filename typed → show error
+                showMessage("Please enter a filename!", "error")
+                return  // stop here
+            }
+
+            const response = await fetch(`/delete/${filename}`, {
+                method: "DELETE"     // DELETE request to /delete/filename route
+            })
+            // /delete/${filename} = /delete/photo.jpg for example
+
+            const data = await response.json()
+            // convert response to JSON
+
+            showMessage(data.message, "success")
+            // show success message to user
+        }
+
+        // SHOW MESSAGE FUNCTION — shows success or error message
+        function showMessage(message, type) {
+            const messageDiv = document.getElementById("message")
+            // get the message div
+
+            messageDiv.textContent = message
+            // set the text inside div
+
+            messageDiv.className = type
+            // set class to "success" or "error"
+            // this applies the CSS styling
+
+            messageDiv.style.display = "block"
+            // make the div visible (was hidden by default)
+        }
+    </script>
+
+</body>
+</html>
+```
+
