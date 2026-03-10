@@ -17,13 +17,19 @@ jobs:
       - name: Login to Docker Hub
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
-      # Step 3 - build Docker image
+      # Step 3 - build Docker image with two tags
       - name: Build Docker image
-        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/new-life-app ./app
+        run: |
+          docker build \
+            -t ${{ secrets.DOCKER_USERNAME }}/new-life-app:latest \
+            -t ${{ secrets.DOCKER_USERNAME }}/new-life-app:${{ github.sha }} \
+            ./app
 
-      # Step 4 - push image to Docker Hub
+      # Step 4 - push both tags to Docker Hub
       - name: Push to Docker Hub
-        run: docker push ${{ secrets.DOCKER_USERNAME }}/new-life-app
+        run: |
+          docker push ${{ secrets.DOCKER_USERNAME }}/new-life-app:latest
+          docker push ${{ secrets.DOCKER_USERNAME }}/new-life-app:${{ github.sha }}
 
       # Step 5 - SSH into EC2 and deploy
       - name: Deploy to EC2
@@ -33,12 +39,14 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            docker pull ${{ secrets.DOCKER_USERNAME }}/new-life-app
-            docker stop new-life-container || true
-            docker rm new-life-container || true
+            docker stop $(docker ps -q) || true
+            docker rm $(docker ps -aq) || true
+            docker pull ${{ secrets.DOCKER_USERNAME }}/new-life-app:latest
             docker run -d \
               --name new-life-container \
               -p 5000:5000 \
               -e S3_BUCKET="new-life-dev-s3" \
               -e AWS_REGION="us-east-1" \
-              ${{ secrets.DOCKER_USERNAME }}/new-life-app
+              ${{ secrets.DOCKER_USERNAME }}/new-life-app:latest
+
+
