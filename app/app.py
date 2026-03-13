@@ -1,67 +1,111 @@
-# app.py - Flask Backend
+from flask import Flask, request, jsonify, render_template
+import boto3
+import os
+import psycopg2  # PostgreSQL library for Python
+from datetime import datetime  # to record upload time
 
-# import flask libraries
-from flask import Flask, request, jsonify, render_template  # Flask web framework
-import boto3                                                 # AWS library to talk to S3
-import os                                                    # to read environment variables
+app = Flask(__name__)
 
-app = Flask(__name__)  # create Flask app — __name__ tells Flask where to look for files
+# S3 configuration
+S3_BUCKET = os.environ.get("S3_BUCKET")
+AWS_REGION = os.environ.get("AWS_REGION")
 
-# S3 configuration — read from environment variables (more secure than hardcoding)
-S3_BUCKET = os.environ.get("S3_BUCKET")    # get bucket name from environment variable
-AWS_REGION = os.environ.get("AWS_REGION")  # get region from environment variable
+# PostgreSQL configuration
+DB_HOST = os.environ.get("DB_HOST")
+DB_NAME = os.environ.get("DB_NAME")
+DB_USER = os.environ.get("DB_USER")
+DB_PASSWORD = os.environ.get("DB_PASSWORD")
 
-# create S3 client using boto3
-s3_client = boto3.client(
-    "s3",                      # we are connecting to S3 service
-    region_name=AWS_REGION     # in this region
-)
-# boto3.client = connection to AWS service
-# no need for access keys because EC2 has IAM role attached ✅
+# S3 client
+s3_client = boto3.client("s3", region_name=AWS_REGION)
 
+# connect to PostgreSQL
+def get_db():
+    conn = psycopg2.connect(
+        host=DB_HOST,
+        database=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD
+    )
+    return conn
 
-# ROUTE 1 — Show HTML page when user opens browser
-@app.route("/")                          # when user goes to http://your-ec2-ip/
-def index():
-    return render_template("index.html") # show index.html from templates folder
-
-
-# ROUTE 2 — Receive file and upload to S3
-@app.route("/upload", methods=["POST"])  # when user submits form → POST request comes here
-def upload():
-    file = request.files["file"]         # get the file from request
-
-    if file:                             # if file exists
-        s3_client.upload_fileobj(
-            file,                        # the actual file
-            S3_BUCKET,                   # which bucket to upload to
-            file.filename                # name of file in S3
+# create uploads table if not exists
+def init_db():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS uploads (
+            id SERIAL PRIMARY KEY,
+            filename VARCHAR(255),
+            file_size VARCHAR(50),
+            upload_time TIMESTAMP,
+            status VARCHAR(50)
         )
-        return jsonify({                 # send success response back to user
-            "message": f"{file.filename} uploaded to S3 successfully!"
-        })
+    """)
+    conn.commit()
+    cur.close()
+    conn.close()
 
-    return jsonify({"message": "No file found"})  # if no file sent
+# ROUTE 1 - show homepage
+@app.route("/")
+def index():
+    # get upload history from PostgreSQL
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT filename, file_size, upload_time, status FROM uploads ORDER BY upload_time DESC")
+    uploads = cur.fetchall()
+    cur.close()
+    conn.close()
+    return render_template("index.html", uploads=uploads)
 
+# ROUTE 2 - upload file
+@app.route("/upload", methods=["POST"])
+def upload():
+    file = request.files["file"]
 
-# ROUTE 3 — Delete file from S3
-@app.route("/delete/<filename>", methods=["DELETE"])  # when user wants to delete
+    if file:
+        # get file size
+        file.seek(0, 2)  # move to end of file
+        file_size = file.tell()  # get size in bytes
+        file.seek(0)  # move back to start
+
+        # upload to S3
+        s3_client.upload_fileobj(file, S3_BUCKET, file.filename)
+
+        # record in PostgreSQL
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO uploads (filename, file_size, upload_time, status) VALUES (%s, %s, %s, %s)",
+            (file.filename, f"{file_size} bytes", datetime.now(), "uploaded")
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return jsonify({"message": f"{file.filename} uploaded successfully!"})
+
+    return jsonify({"message": "No file found"})
+
+# ROUTE 3 - delete file
+@app.route("/delete/<filename>", methods=["DELETE"])
 def delete(filename):
-    s3_client.delete_object(
-        Bucket=S3_BUCKET,   # which bucket
-        Key=filename         # which file to delete
+    # delete from S3
+    s3_client.delete_object(Bucket=S3_BUCKET, Key=filename)
+
+    # update status in PostgreSQL
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE uploads SET status = %s WHERE filename = %s",
+        ("deleted", filename)
     )
-    return jsonify({
-        "message": f"{filename} deleted from S3 successfully!"
-    })
+    conn.commit()
+    cur.close()
+    conn.close()
 
+    return jsonify({"message": f"{filename} deleted successfully!"})
 
-# Start the Flask app
 if __name__ == "__main__":
-    app.run(
-        host="0.0.0.0",  # listen on all network interfaces — important for Docker!
-        port=5000,        # run on port 5000
-        debug=True        # show errors in browser — turn off in production
-    )
-
-
+    init_db()  # create table when app starts
+    app.run(host="0.0.0.0", port=5000, debug=True)
