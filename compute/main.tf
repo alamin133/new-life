@@ -48,6 +48,17 @@ resource "aws_instance" "web_server" {
   vpc_security_group_ids = [aws_security_group.web_sg.id]
    iam_instance_profile   = var.iam_instance_profile 
    key_name               = "new-life-key"
+
+   user_data = <<-EOF
+    #!/bin/bash
+    sudo apt update
+    sudo apt install docker.io -y
+    sudo systemctl start docker
+    sudo systemctl enable docker
+    sudo usermod -aG docker ubuntu
+    sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    sudo chmod +x /usr/local/bin/docker-compose
+  EOF
   tags = {
     Name = "My-First-Terraform-Server"
     Environment = "Dev"
